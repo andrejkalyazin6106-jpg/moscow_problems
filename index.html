@@ -1,0 +1,3239 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <link rel="stylesheet" href="css/leaflet.css">
+        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
+        <link rel="stylesheet" href="css/qgis2web.css">
+        <link rel="stylesheet" href="css/fontawesome-all.min.css">
+        <link rel="stylesheet" href="css/MarkerCluster.css">
+        <link rel="stylesheet" href="css/MarkerCluster.Default.css">
+        <link rel="stylesheet" href="css/leaflet.photon.css">
+        <style>
+        html, body, #map {
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            margin: 0;
+        }
+        
+/* =========================
+   GLASSMORPHISM UI
+========================= */
+
+.glass-panel,
+.leaflet-control,
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip,
+.legend {
+    background: rgba(255,255,255,0.18) !important;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255,255,255,0.25);
+    box-shadow:
+        0 8px 32px rgba(0,0,0,0.12),
+        inset 0 1px 0 rgba(255,255,255,0.28);
+    border-radius: 18px !important;
+}
+
+.map-title-panel,
+.info-panel,
+.stats-panel {
+    position: absolute;
+    left: 14px;
+    z-index: 1200;
+    width: 360px;
+    padding: 14px 18px;
+}
+
+.map-title-panel { top: 14px; }
+.info-panel { top: 92px; }
+.stats-panel { top: 178px; }
+
+#map-title {
+    font-size: 19px;
+    font-weight: 700;
+    color: #111;
+}
+
+.legend {
+    padding: 14px !important;
+}
+
+.leaflet-popup-content {
+    color: #111;
+    font-size: 13px;
+}
+
+.leaflet-control-geocoder {
+    background: rgba(255,255,255,0.18) !important;
+    backdrop-filter: blur(16px);
+    border-radius: 14px !important;
+    overflow: hidden;
+}
+
+.leaflet-control-geocoder input {
+    background: transparent !important;
+    padding-left: 14px !important;
+}
+
+.leaflet-bar a {
+    background: rgba(255,255,255,0.18) !important;
+    backdrop-filter: blur(12px);
+    color: #111 !important;
+    border: none !important;
+}
+
+.leaflet-control-scale-line {
+    background: rgba(255,255,255,0.18) !important;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.3) !important;
+    border-radius: 10px;
+    padding: 2px 8px;
+}
+
+</style>
+        <title></title>
+    </head>
+    <body>
+        <div id="map">
+        </div>
+        <script src="js/leaflet.js"></script>
+        <script src="js/L.Control.Layers.Tree.min.js"></script>
+        <script src="js/leaflet-hash.js"></script>
+        <script src="js/Autolinker.min.js"></script>
+        <script src="js/leaflet.photon.js"></script>
+        <script src="js/proj4.js"></script>
+        <script src="js/proj4leaflet.js"></script>
+        <script src="js/leaflet.markercluster.js"></script>
+        <script src="data/districts_0.js"></script>
+        <script src="data/countproblemsper20000_1.js"></script>
+        <script src="data/disprobwithoutzkh_2.js"></script>
+        <script src="data/_3.js"></script>
+        <script src="data/pointsformap_4.js"></script>
+        <script src="data/ecogrid_5.js"></script>
+        <script src="data/ecopoints_6.js"></script>
+        <script src="data/transportgrid_7.js"></script>
+        <script src="data/transportpoints_8.js"></script>
+        <script src="data/socialgrid_9.js"></script>
+        <script src="data/socialpoints_10.js"></script>
+        <script src="data/educationgrid_11.js"></script>
+        <script src="data/educationpoints_12.js"></script>
+        <script src="data/medicgrid_13.js"></script>
+        <script src="data/medicpoints_14.js"></script>
+        <script src="data/zkhgrid_15.js"></script>
+        <script src="data/zkhpoints_16.js"></script>
+        <script src="data/govermentgrid_17.js"></script>
+        <script src="data/govermentpoints_18.js"></script>
+        <script src="data/blagoustrgrid_19.js"></script>
+        <script src="data/blagoustrpoints_20.js"></script>
+        <script src="data/safegrid_21.js"></script>
+        <script src="data/safepoints_22.js"></script>
+        <script>
+        /* =========================
+           Web Mercator + CartoDB Positron no labels
+           Нужен для обычных XYZ-подложек. Если GeoJSON был выгружен в EPSG:32637,
+           координаты автоматически переводятся в WGS84 перед созданием слоев.
+           ========================= */
+
+        function getFirstCoordinateFromGeometry(geometry) {
+            if (!geometry || !geometry.coordinates) return null;
+            var coords = geometry.coordinates;
+            while (Array.isArray(coords) && Array.isArray(coords[0])) {
+                coords = coords[0];
+            }
+            if (Array.isArray(coords) && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                return coords;
+            }
+            return null;
+        }
+
+        function coordinatesLookProjected(firstCoordinate) {
+            if (!firstCoordinate) return false;
+            return Math.abs(firstCoordinate[0]) > 180 || Math.abs(firstCoordinate[1]) > 90;
+        }
+
+        function transformCoordinatesFrom32637To4326(coords) {
+            if (!Array.isArray(coords)) return coords;
+
+            if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                var transformed = proj4(
+                    '+proj=utm +zone=37 +datum=WGS84 +units=m +no_defs',
+                    'EPSG:4326',
+                    [coords[0], coords[1]]
+                );
+                return [transformed[0], transformed[1]].concat(coords.slice(2));
+            }
+
+            return coords.map(transformCoordinatesFrom32637To4326);
+        }
+
+        function reprojectGeoJsonIfNeeded(geojson) {
+            if (!geojson || !geojson.features || !geojson.features.length) return;
+            var firstCoordinate = getFirstCoordinateFromGeometry(geojson.features[0].geometry);
+            if (!coordinatesLookProjected(firstCoordinate)) return;
+
+            geojson.features.forEach(function (feature) {
+                if (feature.geometry && feature.geometry.coordinates) {
+                    feature.geometry.coordinates = transformCoordinatesFrom32637To4326(feature.geometry.coordinates);
+                }
+            });
+        }
+
+        Object.keys(window).forEach(function (key) {
+            if (key.indexOf('json_') === 0) {
+                reprojectGeoJsonIfNeeded(window[key]);
+            }
+        });
+
+        var map = L.map('map', {
+            zoomControl: false,
+            maxZoom: 18,
+            minZoom: 8
+        }).fitBounds([[55.388606873743484,36.91529440512875],[56.05166783574404,38.23962070315584]]);
+
+        map.createPane('pane_CartoPositronNoLabels');
+        map.getPane('pane_CartoPositronNoLabels').style.zIndex = 100;
+
+        var layer_CartoPositronNoLabels = L.tileLayer(
+            'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
+            {
+                pane: 'pane_CartoPositronNoLabels',
+                subdomains: 'abcd',
+                opacity: 1,
+                minZoom: 0,
+                maxZoom: 20,
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+            }
+        );
+
+        layer_CartoPositronNoLabels.addTo(map);
+        layer_CartoPositronNoLabels.bringToBack();
+
+        /* Ограничение минимального зума и экстента: можно отдалиться на один шаг дальше, а все точки остаются доступными */
+        var MOSCOW_MIN_ZOOM = 8;
+        var MOSCOW_VIEW_BOUNDS = L.latLngBounds(
+            [55.388606873743484, 36.91529440512875],
+            [56.05166783574404, 38.23962070315584]
+        );
+        var MOSCOW_MAX_BOUNDS = MOSCOW_VIEW_BOUNDS.pad(0.65);
+        map.setMinZoom(MOSCOW_MIN_ZOOM);
+        map.setMaxBounds(MOSCOW_MAX_BOUNDS);
+        map.options.maxBoundsViscosity = 0.75;
+
+        var isLockingMoscowView = false;
+        function lockMoscowAtMinZoom() {
+            if (isLockingMoscowView) return;
+            if (map.getZoom() <= MOSCOW_MIN_ZOOM) {
+                isLockingMoscowView = true;
+                map.setView(MOSCOW_VIEW_BOUNDS.getCenter(), MOSCOW_MIN_ZOOM, {animate: false});
+                isLockingMoscowView = false;
+            }
+        }
+        map.on('zoomend', lockMoscowAtMinZoom);
+
+        var hash = new L.Hash(map);
+        map.attributionControl.setPrefix('<a href="https://github.com/tomchadwin/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+        function removeEmptyRowsFromPopupContent(content, feature) {
+         var tempDiv = document.createElement('div');
+         tempDiv.innerHTML = content;
+         var rows = tempDiv.querySelectorAll('tr');
+         for (var i = 0; i < rows.length; i++) {
+             var td = rows[i].querySelector('td.visible-with-data');
+             var key = td ? td.id : '';
+             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
+                 rows[i].parentNode.removeChild(rows[i]);
+             }
+         }
+         return tempDiv.innerHTML;
+        }
+        function addClassToPopupIfMedia(content, popup) {
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            var imgTd = tempDiv.querySelector('td img');
+            if (imgTd) {
+                var src = imgTd.getAttribute('src');
+                if (/\.(jpg|jpeg|png|gif|bmp|webp|avif)$/i.test(src)) {
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp3|wav|ogg|aac)$/i.test(src)) {
+                    var audio = document.createElement('audio');
+                    audio.controls = true;
+                    audio.src = src;
+                    imgTd.parentNode.replaceChild(audio, imgTd);
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp4|webm|ogg|mov)$/i.test(src)) {
+                    var video = document.createElement('video');
+                    video.controls = true;
+                    video.src = src;
+                    video.style.width = "400px";
+                    video.style.height = "300px";
+                    video.style.maxHeight = "60vh";
+                    video.style.maxWidth = "60vw";
+                    imgTd.parentNode.replaceChild(video, imgTd);
+                    popup._contentNode.classList.add('media');
+                    video.addEventListener('loadedmetadata', function() {
+                        popup.update();
+                    });
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else {
+                    popup._contentNode.classList.remove('media');
+                }
+            } else {
+                popup._contentNode.classList.remove('media');
+            }
+        }
+        var zoomControl = L.control.zoom({
+            position: 'bottomleft'
+        }).addTo(map);
+        var bounds_group = new L.featureGroup([]);
+        function setBounds() {
+        }
+        function pop_districts_0(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="NAME" colspan="2"><strong>NAME</strong><br />' + (feature.properties['NAME'] !== null ? autolinker.link(String(feature.properties['NAME']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Popul_2021</th>\
+                        <td class="visible-with-data" id="Popul_2021">' + (feature.properties['Popul_2021'] !== null ? autolinker.link(String(feature.properties['Popul_2021']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_districts_0_0() {
+            return {
+                pane: 'pane_districts_0',
+                opacity: 1,
+                color: 'rgba(185,185,185,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        map.createPane('pane_districts_0');
+        map.getPane('pane_districts_0').style.zIndex = 400;
+        map.getPane('pane_districts_0').style['mix-blend-mode'] = 'normal';
+        var layer_districts_0 = new L.geoJson(json_districts_0, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_districts_0',
+            layerName: 'layer_districts_0',
+            pane: 'pane_districts_0',
+            onEachFeature: pop_districts_0,
+            style: style_districts_0_0,
+        });
+        bounds_group.addLayer(layer_districts_0);
+        map.addLayer(layer_districts_0);
+        function pop_countproblemsper20000_1(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="NAME" colspan="2"><strong>NAME</strong><br />' + (feature.properties['NAME'] !== null ? autolinker.link(String(feature.properties['NAME']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Popul_2021</th>\
+                        <td class="visible-with-data" id="Popul_2021">' + (feature.properties['Popul_2021'] !== null ? autolinker.link(String(feature.properties['Popul_2021']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Категория_count</th>\
+                        <td class="visible-with-data" id="Категория_count">' + (feature.properties['Категория_count'] !== null ? autolinker.link(String(feature.properties['Категория_count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['count real'] !== null ? autolinker.link(String(feature.properties['count real']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">count</th>\
+                        <td class="visible-with-data" id="count">' + (feature.properties['count'] !== null ? autolinker.link(String(feature.properties['count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_countproblemsper20000_1_0(feature) {
+            if (feature.properties['count'] >= 1.000000 && feature.properties['count'] <= 4.000000 ) {
+                return {
+                pane: 'pane_countproblemsper20000_1',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(213,193,255,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['count'] >= 4.000000 && feature.properties['count'] <= 5.000000 ) {
+                return {
+                pane: 'pane_countproblemsper20000_1',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(173,147,223,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['count'] >= 5.000000 && feature.properties['count'] <= 6.000000 ) {
+                return {
+                pane: 'pane_countproblemsper20000_1',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(133,101,191,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['count'] >= 6.000000 && feature.properties['count'] <= 10.000000 ) {
+                return {
+                pane: 'pane_countproblemsper20000_1',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(92,55,159,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['count'] >= 10.000000 && feature.properties['count'] <= 20.000000 ) {
+                return {
+                pane: 'pane_countproblemsper20000_1',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(52,9,127,1.0)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_countproblemsper20000_1');
+        map.getPane('pane_countproblemsper20000_1').style.zIndex = 401;
+        map.getPane('pane_countproblemsper20000_1').style['mix-blend-mode'] = 'normal';
+        var layer_countproblemsper20000_1 = new L.geoJson(json_countproblemsper20000_1, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_countproblemsper20000_1',
+            layerName: 'layer_countproblemsper20000_1',
+            pane: 'pane_countproblemsper20000_1',
+            onEachFeature: pop_countproblemsper20000_1,
+            style: style_countproblemsper20000_1_0,
+        });
+        bounds_group.addLayer(layer_countproblemsper20000_1);
+        function pop_disprobwithoutzkh_2(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="NAME" colspan="2"><strong>NAME</strong><br />' + (feature.properties['NAME'] !== null ? autolinker.link(String(feature.properties['NAME']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Popul_2021</th>\
+                        <td class="visible-with-data" id="Popul_2021">' + (feature.properties['Popul_2021'] !== null ? autolinker.link(String(feature.properties['Popul_2021']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">virtual_layer_problem_category</th>\
+                        <td class="visible-with-data" id="virtual_layer_problem_category">' + (feature.properties['virtual_layer_problem_category'] !== null ? autolinker.link(String(feature.properties['virtual_layer_problem_category']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_disprobwithoutzkh_2_0(feature) {
+            switch(String(feature.properties['virtual_layer_problem_category'])) {
+                case 'Безопасность и правопорядок':
+                    return {
+                pane: 'pane_disprobwithoutzkh_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(112,144,182,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Благоустройство':
+                    return {
+                pane: 'pane_disprobwithoutzkh_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(197,203,143,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Государственные учреждения':
+                    return {
+                pane: 'pane_disprobwithoutzkh_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(130,130,130,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Образование':
+                    return {
+                pane: 'pane_disprobwithoutzkh_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(170,143,113,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Социальная защита и льготы':
+                    return {
+                pane: 'pane_disprobwithoutzkh_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(159,224,215,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Транспорт':
+                    return {
+                pane: 'pane_disprobwithoutzkh_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(162,189,221,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Экология':
+                    return {
+                pane: 'pane_disprobwithoutzkh_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(155,203,143,1.0)',
+                interactive: true,
+            }
+                    break;
+                default:
+                    return {
+                pane: 'pane_disprobwithoutzkh_2',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0, 
+                fill: true,
+                fillOpacity: 0.6,
+                fillColor: 'rgba(138,178,234,1.0)',
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_disprobwithoutzkh_2');
+        map.getPane('pane_disprobwithoutzkh_2').style.zIndex = 402;
+        map.getPane('pane_disprobwithoutzkh_2').style['mix-blend-mode'] = 'normal';
+        var layer_disprobwithoutzkh_2 = new L.geoJson(json_disprobwithoutzkh_2, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_disprobwithoutzkh_2',
+            layerName: 'layer_disprobwithoutzkh_2',
+            pane: 'pane_disprobwithoutzkh_2',
+            onEachFeature: pop_disprobwithoutzkh_2,
+            style: style_disprobwithoutzkh_2_0,
+        });
+        bounds_group.addLayer(layer_disprobwithoutzkh_2);
+        map.addLayer(layer_disprobwithoutzkh_2);
+        function pop__3(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['boundary'] !== null ? autolinker.link(String(feature.properties['boundary']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['gost_7.67-2003'] !== null ? autolinker.link(String(feature.properties['gost_7.67-2003']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['int_ref'] !== null ? autolinker.link(String(feature.properties['int_ref']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name'] !== null ? autolinker.link(String(feature.properties['name']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:be'] !== null ? autolinker.link(String(feature.properties['name:be']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:br'] !== null ? autolinker.link(String(feature.properties['name:br']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:ca'] !== null ? autolinker.link(String(feature.properties['name:ca']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:cs'] !== null ? autolinker.link(String(feature.properties['name:cs']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:de'] !== null ? autolinker.link(String(feature.properties['name:de']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:en'] !== null ? autolinker.link(String(feature.properties['name:en']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:eo'] !== null ? autolinker.link(String(feature.properties['name:eo']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:es'] !== null ? autolinker.link(String(feature.properties['name:es']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:fi'] !== null ? autolinker.link(String(feature.properties['name:fi']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:fr'] !== null ? autolinker.link(String(feature.properties['name:fr']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:fy'] !== null ? autolinker.link(String(feature.properties['name:fy']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:hr'] !== null ? autolinker.link(String(feature.properties['name:hr']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:hu'] !== null ? autolinker.link(String(feature.properties['name:hu']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:ja'] !== null ? autolinker.link(String(feature.properties['name:ja']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:lt'] !== null ? autolinker.link(String(feature.properties['name:lt']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:mdf'] !== null ? autolinker.link(String(feature.properties['name:mdf']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:nl'] !== null ? autolinker.link(String(feature.properties['name:nl']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:no'] !== null ? autolinker.link(String(feature.properties['name:no']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:pl'] !== null ? autolinker.link(String(feature.properties['name:pl']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:ro'] !== null ? autolinker.link(String(feature.properties['name:ro']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:ru'] !== null ? autolinker.link(String(feature.properties['name:ru']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:sk'] !== null ? autolinker.link(String(feature.properties['name:sk']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:sr'] !== null ? autolinker.link(String(feature.properties['name:sr']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:sr-Latn'] !== null ? autolinker.link(String(feature.properties['name:sr-Latn']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:tk'] !== null ? autolinker.link(String(feature.properties['name:tk']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:tzl'] !== null ? autolinker.link(String(feature.properties['name:tzl']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:uk'] !== null ? autolinker.link(String(feature.properties['name:uk']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:zh'] !== null ? autolinker.link(String(feature.properties['name:zh']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:zh-Hans'] !== null ? autolinker.link(String(feature.properties['name:zh-Hans']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:zh-Hant'] !== null ? autolinker.link(String(feature.properties['name:zh-Hant']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['official_status'] !== null ? autolinker.link(String(feature.properties['official_status']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['ref'] !== null ? autolinker.link(String(feature.properties['ref']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['ssrf:code'] !== null ? autolinker.link(String(feature.properties['ssrf:code']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['type'] !== null ? autolinker.link(String(feature.properties['type']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['website'] !== null ? autolinker.link(String(feature.properties['website']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['wikidata'] !== null ? autolinker.link(String(feature.properties['wikidata']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['wikimedia_commons'] !== null ? autolinker.link(String(feature.properties['wikimedia_commons']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['wikipedia'] !== null ? autolinker.link(String(feature.properties['wikipedia']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['addr:region'] !== null ? autolinker.link(String(feature.properties['addr:region']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['int_name'] !== null ? autolinker.link(String(feature.properties['int_name']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['name:et'] !== null ? autolinker.link(String(feature.properties['name:et']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['place'] !== null ? autolinker.link(String(feature.properties['place']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['population'] !== null ? autolinker.link(String(feature.properties['population']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['layer'] !== null ? autolinker.link(String(feature.properties['layer']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['path'] !== null ? autolinker.link(String(feature.properties['path']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style__3_0() {
+            return {
+                pane: 'pane__3',
+                opacity: 1,
+                color: 'rgba(135,13,13,1.0)',
+                dashArray: '10.0,2.0',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: false,
+            }
+        }
+        map.createPane('pane__3');
+        map.getPane('pane__3').style.zIndex = 403;
+        map.getPane('pane__3').style['mix-blend-mode'] = 'normal';
+        var layer__3 = new L.geoJson(json__3, {
+            attribution: '',
+            interactive: false,
+            dataVar: 'json__3',
+            layerName: 'layer__3',
+            pane: 'pane__3',
+            onEachFeature: pop__3,
+            style: style__3_0,
+        });
+        bounds_group.addLayer(layer__3);
+        map.addLayer(layer__3);
+        function pop_pointsformap_4(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="Адрес" colspan="2"><strong>Адрес</strong><br />' + (feature.properties['Адрес'] !== null ? autolinker.link(String(feature.properties['Адрес']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Краткая выжимка</th>\
+                        <td class="visible-with-data" id="Краткая выжимка">' + (feature.properties['Краткая выжимка'] !== null ? autolinker.link(String(feature.properties['Краткая выжимка']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td class="visible-with-data" id="Категория" colspan="2"><strong>Категория</strong><br />' + (feature.properties['Категория'] !== null ? autolinker.link(String(feature.properties['Категория']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_pointsformap_4_0(feature) {
+            switch(String(feature.properties['Категория'])) {
+                case 'Безопасность и правопорядок':
+                    return {
+                pane: 'pane_pointsformap_4',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(112,144,182,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Благоустройство':
+                    return {
+                pane: 'pane_pointsformap_4',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(197,203,143,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Государственные учреждения':
+                    return {
+                pane: 'pane_pointsformap_4',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(130,130,130,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'ЖКХ и коммунальные услуги':
+                    return {
+                pane: 'pane_pointsformap_4',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(217,166,106,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Медицина и здравоохранение':
+                    return {
+                pane: 'pane_pointsformap_4',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(217,140,140,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Образование':
+                    return {
+                pane: 'pane_pointsformap_4',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(170,143,113,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Социальная защита и льготы':
+                    return {
+                pane: 'pane_pointsformap_4',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(159,224,215,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Транспорт':
+                    return {
+                pane: 'pane_pointsformap_4',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(162,189,221,1.0)',
+                interactive: true,
+            }
+                    break;
+                case 'Экология':
+                    return {
+                pane: 'pane_pointsformap_4',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(155,203,143,1.0)',
+                interactive: true,
+            }
+                    break;
+                default:
+                    return {
+                pane: 'pane_pointsformap_4',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(50,202,118,1.0)',
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_pointsformap_4');
+        map.getPane('pane_pointsformap_4').style.zIndex = 404;
+        map.getPane('pane_pointsformap_4').style['mix-blend-mode'] = 'normal';
+        var layer_pointsformap_4 = new L.geoJson(json_pointsformap_4, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_pointsformap_4',
+            layerName: 'layer_pointsformap_4',
+            pane: 'pane_pointsformap_4',
+            onEachFeature: pop_pointsformap_4,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_pointsformap_4_0(feature));
+            },
+        });
+
+
+        /* =========================
+           Cluster color ramps
+           ========================= */
+        function getClusterBucket(count) {
+            if (count < 10) return 0;
+            if (count < 50) return 1;
+            if (count < 150) return 2;
+            if (count < 300) return 3;
+            return 4;
+        }
+
+        function hexToRgb(hex) {
+            hex = hex.replace('#', '');
+            return {
+                r: parseInt(hex.substring(0, 2), 16),
+                g: parseInt(hex.substring(2, 4), 16),
+                b: parseInt(hex.substring(4, 6), 16)
+            };
+        }
+
+        function rgbToHex(rgb) {
+            function toHex(value) {
+                value = Math.max(0, Math.min(255, Math.round(value)));
+                return value.toString(16).padStart(2, '0');
+            }
+            return '#' + toHex(rgb.r) + toHex(rgb.g) + toHex(rgb.b);
+        }
+
+        function mixColors(hexA, hexB, amount) {
+            var a = hexToRgb(hexA);
+            var b = hexToRgb(hexB);
+            return rgbToHex({
+                r: a.r + (b.r - a.r) * amount,
+                g: a.g + (b.g - a.g) * amount,
+                b: a.b + (b.b - a.b) * amount
+            });
+        }
+
+        function makeCategoryRamp(baseHex) {
+            return [
+                mixColors(baseHex, '#ffffff', 0.55),
+                mixColors(baseHex, '#ffffff', 0.30),
+                baseHex,
+                mixColors(baseHex, '#000000', 0.22),
+                mixColors(baseHex, '#000000', 0.42)
+            ];
+        }
+
+        function makeClusterIcon(count, colorHex, textColor) {
+            textColor = textColor || '#111';
+            return L.divIcon({
+                html: '<div style="' +
+                    'width:44px;' +
+                    'height:44px;' +
+                    'border-radius:50%;' +
+                    'background:' + colorHex + ';' +
+                    'outline:8px solid ' + colorHex + '55;' +
+                    'color:' + textColor + ';' +
+                    'font-size:13px;' +
+                    'font-weight:700;' +
+                    'line-height:44px;' +
+                    'text-align:center;' +
+                    'box-shadow:0 2px 8px rgba(0,0,0,0.25);' +
+                '">' + count + '</div>',
+                className: 'complaint-gradient-cluster',
+                iconSize: L.point(52, 52)
+            });
+        }
+
+        function makeGrayComplaintClusterIcon(cluster) {
+            var count = cluster.getChildCount();
+            var colors = ['#d9d9d9', '#bdbdbd', '#969696', '#636363', '#252525'];
+            return makeClusterIcon(count, colors[getClusterBucket(count)], count > 200 ? '#fff' : '#111');
+        }
+
+        function makeComplaintClusterIcon(baseHex) {
+            var colors = makeCategoryRamp(baseHex);
+            return function (cluster) {
+                var count = cluster.getChildCount();
+                return makeClusterIcon(count, colors[getClusterBucket(count)]);
+            };
+        }
+        var cluster_pointsformap_4 = new L.MarkerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyDistanceMultiplier: 2,
+            disableClusteringAtZoom: 16,
+            iconCreateFunction: makeGrayComplaintClusterIcon
+        });
+        cluster_pointsformap_4.addLayer(layer_pointsformap_4);
+
+        bounds_group.addLayer(layer_pointsformap_4);
+        cluster_pointsformap_4.addTo(map);
+        function pop_ecogrid_5(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Категория_count</th>\
+                        <td class="visible-with-data" id="Категория_count">' + (feature.properties['Категория_count'] !== null ? autolinker.link(String(feature.properties['Категория_count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_ecogrid_5_0(feature) {
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 1.000000 ) {
+                return {
+                pane: 'pane_ecogrid_5',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(177,220,167,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 3.000000 ) {
+                return {
+                pane: 'pane_ecogrid_5',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(141,180,133,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 3.000000 && feature.properties['Категория_count'] <= 5.000000 ) {
+                return {
+                pane: 'pane_ecogrid_5',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(105,141,98,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 5.000000 && feature.properties['Категория_count'] <= 10.000000 ) {
+                return {
+                pane: 'pane_ecogrid_5',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(69,101,64,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 10.000000 && feature.properties['Категория_count'] <= 37.000000 ) {
+                return {
+                pane: 'pane_ecogrid_5',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(33,61,29,1.0)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_ecogrid_5');
+        map.getPane('pane_ecogrid_5').style.zIndex = 405;
+        map.getPane('pane_ecogrid_5').style['mix-blend-mode'] = 'normal';
+        var layer_ecogrid_5 = new L.geoJson(json_ecogrid_5, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_ecogrid_5',
+            layerName: 'layer_ecogrid_5',
+            pane: 'pane_ecogrid_5',
+            onEachFeature: pop_ecogrid_5,
+            style: style_ecogrid_5_0,
+        });
+        bounds_group.addLayer(layer_ecogrid_5);
+        function pop_ecopoints_6(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="Адрес" colspan="2"><strong>Адрес</strong><br />' + (feature.properties['Адрес'] !== null ? autolinker.link(String(feature.properties['Адрес']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Краткая выжимка</th>\
+                        <td class="visible-with-data" id="Краткая выжимка">' + (feature.properties['Краткая выжимка'] !== null ? autolinker.link(String(feature.properties['Краткая выжимка']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Категория</th>\
+                        <td class="visible-with-data" id="Категория">' + (feature.properties['Категория'] !== null ? autolinker.link(String(feature.properties['Категория']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_ecopoints_6_0() {
+            return {
+                pane: 'pane_ecopoints_6',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(155,203,143,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_ecopoints_6');
+        map.getPane('pane_ecopoints_6').style.zIndex = 406;
+        map.getPane('pane_ecopoints_6').style['mix-blend-mode'] = 'normal';
+        var layer_ecopoints_6 = new L.geoJson(json_ecopoints_6, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_ecopoints_6',
+            layerName: 'layer_ecopoints_6',
+            pane: 'pane_ecopoints_6',
+            onEachFeature: pop_ecopoints_6,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_ecopoints_6_0(feature));
+            },
+        });
+        var cluster_ecopoints_6 = new L.MarkerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyDistanceMultiplier: 2,
+            iconCreateFunction: makeComplaintClusterIcon('#9BCB8F')
+        });
+        cluster_ecopoints_6.addLayer(layer_ecopoints_6);
+
+        bounds_group.addLayer(layer_ecopoints_6);
+        function pop_transportgrid_7(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Категория_count</th>\
+                        <td class="visible-with-data" id="Категория_count">' + (feature.properties['Категория_count'] !== null ? autolinker.link(String(feature.properties['Категория_count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_transportgrid_7_0(feature) {
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 1.000000 ) {
+                return {
+                pane: 'pane_transportgrid_7',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(145,165,207,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 3.000000 ) {
+                return {
+                pane: 'pane_transportgrid_7',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(99,117,160,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 3.000000 && feature.properties['Категория_count'] <= 5.000000 ) {
+                return {
+                pane: 'pane_transportgrid_7',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(54,69,114,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 5.000000 && feature.properties['Категория_count'] <= 25.000000 ) {
+                return {
+                pane: 'pane_transportgrid_7',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(9,22,67,1.0)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_transportgrid_7');
+        map.getPane('pane_transportgrid_7').style.zIndex = 407;
+        map.getPane('pane_transportgrid_7').style['mix-blend-mode'] = 'normal';
+        var layer_transportgrid_7 = new L.geoJson(json_transportgrid_7, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_transportgrid_7',
+            layerName: 'layer_transportgrid_7',
+            pane: 'pane_transportgrid_7',
+            onEachFeature: pop_transportgrid_7,
+            style: style_transportgrid_7_0,
+        });
+        bounds_group.addLayer(layer_transportgrid_7);
+        function pop_transportpoints_8(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="Адрес" colspan="2"><strong>Адрес</strong><br />' + (feature.properties['Адрес'] !== null ? autolinker.link(String(feature.properties['Адрес']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Краткая выжимка</th>\
+                        <td class="visible-with-data" id="Краткая выжимка">' + (feature.properties['Краткая выжимка'] !== null ? autolinker.link(String(feature.properties['Краткая выжимка']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Категория</th>\
+                        <td class="visible-with-data" id="Категория">' + (feature.properties['Категория'] !== null ? autolinker.link(String(feature.properties['Категория']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_transportpoints_8_0() {
+            return {
+                pane: 'pane_transportpoints_8',
+                radius: 6.4,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(162,189,221,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_transportpoints_8');
+        map.getPane('pane_transportpoints_8').style.zIndex = 408;
+        map.getPane('pane_transportpoints_8').style['mix-blend-mode'] = 'normal';
+        var layer_transportpoints_8 = new L.geoJson(json_transportpoints_8, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_transportpoints_8',
+            layerName: 'layer_transportpoints_8',
+            pane: 'pane_transportpoints_8',
+            onEachFeature: pop_transportpoints_8,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_transportpoints_8_0(feature));
+            },
+        });
+        var cluster_transportpoints_8 = new L.MarkerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyDistanceMultiplier: 2,
+            iconCreateFunction: makeComplaintClusterIcon('#A2BDDD')
+        });
+        cluster_transportpoints_8.addLayer(layer_transportpoints_8);
+
+        bounds_group.addLayer(layer_transportpoints_8);
+        function pop_socialgrid_9(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Категория_count</th>\
+                        <td class="visible-with-data" id="Категория_count">' + (feature.properties['Категория_count'] !== null ? autolinker.link(String(feature.properties['Категория_count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_socialgrid_9_0(feature) {
+            if (feature.properties['Категория_count'] >= 0.000000 && feature.properties['Категория_count'] <= 1.000000 ) {
+                return {
+                pane: 'pane_socialgrid_9',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(132,161,165,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 2.000000 ) {
+                return {
+                pane: 'pane_socialgrid_9',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(100,132,135,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 2.000000 && feature.properties['Категория_count'] <= 3.000000 ) {
+                return {
+                pane: 'pane_socialgrid_9',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(68,104,106,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 3.000000 && feature.properties['Категория_count'] <= 7.000000 ) {
+                return {
+                pane: 'pane_socialgrid_9',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(35,75,76,1.0)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_socialgrid_9');
+        map.getPane('pane_socialgrid_9').style.zIndex = 409;
+        map.getPane('pane_socialgrid_9').style['mix-blend-mode'] = 'normal';
+        var layer_socialgrid_9 = new L.geoJson(json_socialgrid_9, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_socialgrid_9',
+            layerName: 'layer_socialgrid_9',
+            pane: 'pane_socialgrid_9',
+            onEachFeature: pop_socialgrid_9,
+            style: style_socialgrid_9_0,
+        });
+        bounds_group.addLayer(layer_socialgrid_9);
+        function pop_socialpoints_10(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="Адрес" colspan="2"><strong>Адрес</strong><br />' + (feature.properties['Адрес'] !== null ? autolinker.link(String(feature.properties['Адрес']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Краткая выжимка</th>\
+                        <td class="visible-with-data" id="Краткая выжимка">' + (feature.properties['Краткая выжимка'] !== null ? autolinker.link(String(feature.properties['Краткая выжимка']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Категория</th>\
+                        <td class="visible-with-data" id="Категория">' + (feature.properties['Категория'] !== null ? autolinker.link(String(feature.properties['Категория']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_socialpoints_10_0() {
+            return {
+                pane: 'pane_socialpoints_10',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(159,224,215,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_socialpoints_10');
+        map.getPane('pane_socialpoints_10').style.zIndex = 410;
+        map.getPane('pane_socialpoints_10').style['mix-blend-mode'] = 'normal';
+        var layer_socialpoints_10 = new L.geoJson(json_socialpoints_10, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_socialpoints_10',
+            layerName: 'layer_socialpoints_10',
+            pane: 'pane_socialpoints_10',
+            onEachFeature: pop_socialpoints_10,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_socialpoints_10_0(feature));
+            },
+        });
+        var cluster_socialpoints_10 = new L.MarkerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyDistanceMultiplier: 2,
+            iconCreateFunction: makeComplaintClusterIcon('#9FE0D7')
+        });
+        cluster_socialpoints_10.addLayer(layer_socialpoints_10);
+
+        bounds_group.addLayer(layer_socialpoints_10);
+        function pop_educationgrid_11(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Категория_count</th>\
+                        <td class="visible-with-data" id="Категория_count">' + (feature.properties['Категория_count'] !== null ? autolinker.link(String(feature.properties['Категория_count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_educationgrid_11_0(feature) {
+            if (feature.properties['Категория_count'] >= 0.000000 && feature.properties['Категория_count'] <= 1.000000 ) {
+                return {
+                pane: 'pane_educationgrid_11',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(182,158,124,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 2.000000 ) {
+                return {
+                pane: 'pane_educationgrid_11',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(140,104,69,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 2.000000 && feature.properties['Категория_count'] <= 3.000000 ) {
+                return {
+                pane: 'pane_educationgrid_11',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(97,51,14,1.0)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_educationgrid_11');
+        map.getPane('pane_educationgrid_11').style.zIndex = 411;
+        map.getPane('pane_educationgrid_11').style['mix-blend-mode'] = 'normal';
+        var layer_educationgrid_11 = new L.geoJson(json_educationgrid_11, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_educationgrid_11',
+            layerName: 'layer_educationgrid_11',
+            pane: 'pane_educationgrid_11',
+            onEachFeature: pop_educationgrid_11,
+            style: style_educationgrid_11_0,
+        });
+        bounds_group.addLayer(layer_educationgrid_11);
+        function pop_educationpoints_12(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="Адрес" colspan="2"><strong>Адрес</strong><br />' + (feature.properties['Адрес'] !== null ? autolinker.link(String(feature.properties['Адрес']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Краткая выжимка</th>\
+                        <td class="visible-with-data" id="Краткая выжимка">' + (feature.properties['Краткая выжимка'] !== null ? autolinker.link(String(feature.properties['Краткая выжимка']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Категория</th>\
+                        <td class="visible-with-data" id="Категория">' + (feature.properties['Категория'] !== null ? autolinker.link(String(feature.properties['Категория']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_educationpoints_12_0() {
+            return {
+                pane: 'pane_educationpoints_12',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(170,143,113,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_educationpoints_12');
+        map.getPane('pane_educationpoints_12').style.zIndex = 412;
+        map.getPane('pane_educationpoints_12').style['mix-blend-mode'] = 'normal';
+        var layer_educationpoints_12 = new L.geoJson(json_educationpoints_12, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_educationpoints_12',
+            layerName: 'layer_educationpoints_12',
+            pane: 'pane_educationpoints_12',
+            onEachFeature: pop_educationpoints_12,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_educationpoints_12_0(feature));
+            },
+        });
+        var cluster_educationpoints_12 = new L.MarkerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyDistanceMultiplier: 2,
+            iconCreateFunction: makeComplaintClusterIcon('#AA8F71')
+        });
+        cluster_educationpoints_12.addLayer(layer_educationpoints_12);
+
+        bounds_group.addLayer(layer_educationpoints_12);
+        function pop_medicgrid_13(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Категория_count</th>\
+                        <td class="visible-with-data" id="Категория_count">' + (feature.properties['Категория_count'] !== null ? autolinker.link(String(feature.properties['Категория_count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_medicgrid_13_0(feature) {
+            if (feature.properties['Категория_count'] >= 0.000000 && feature.properties['Категория_count'] <= 1.000000 ) {
+                return {
+                pane: 'pane_medicgrid_13',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(224,188,188,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 2.000000 ) {
+                return {
+                pane: 'pane_medicgrid_13',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(115,47,47,1.0)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_medicgrid_13');
+        map.getPane('pane_medicgrid_13').style.zIndex = 413;
+        map.getPane('pane_medicgrid_13').style['mix-blend-mode'] = 'normal';
+        var layer_medicgrid_13 = new L.geoJson(json_medicgrid_13, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_medicgrid_13',
+            layerName: 'layer_medicgrid_13',
+            pane: 'pane_medicgrid_13',
+            onEachFeature: pop_medicgrid_13,
+            style: style_medicgrid_13_0,
+        });
+        bounds_group.addLayer(layer_medicgrid_13);
+        function pop_medicpoints_14(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="Адрес" colspan="2"><strong>Адрес</strong><br />' + (feature.properties['Адрес'] !== null ? autolinker.link(String(feature.properties['Адрес']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Краткая выжимка</th>\
+                        <td class="visible-with-data" id="Краткая выжимка">' + (feature.properties['Краткая выжимка'] !== null ? autolinker.link(String(feature.properties['Краткая выжимка']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Категория</th>\
+                        <td class="visible-with-data" id="Категория">' + (feature.properties['Категория'] !== null ? autolinker.link(String(feature.properties['Категория']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_medicpoints_14_0() {
+            return {
+                pane: 'pane_medicpoints_14',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(217,140,140,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_medicpoints_14');
+        map.getPane('pane_medicpoints_14').style.zIndex = 414;
+        map.getPane('pane_medicpoints_14').style['mix-blend-mode'] = 'normal';
+        var layer_medicpoints_14 = new L.geoJson(json_medicpoints_14, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_medicpoints_14',
+            layerName: 'layer_medicpoints_14',
+            pane: 'pane_medicpoints_14',
+            onEachFeature: pop_medicpoints_14,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_medicpoints_14_0(feature));
+            },
+        });
+        var cluster_medicpoints_14 = new L.MarkerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyDistanceMultiplier: 2,
+            iconCreateFunction: makeComplaintClusterIcon('#D98C8C')
+        });
+        cluster_medicpoints_14.addLayer(layer_medicpoints_14);
+
+        bounds_group.addLayer(layer_medicpoints_14);
+        function pop_zkhgrid_15(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Категория_count</th>\
+                        <td class="visible-with-data" id="Категория_count">' + (feature.properties['Категория_count'] !== null ? autolinker.link(String(feature.properties['Категория_count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_zkhgrid_15_0(feature) {
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 1.000000 ) {
+                return {
+                pane: 'pane_zkhgrid_15',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(251,218,175,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 3.000000 ) {
+                return {
+                pane: 'pane_zkhgrid_15',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(220,181,136,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 3.000000 && feature.properties['Категория_count'] <= 5.000000 ) {
+                return {
+                pane: 'pane_zkhgrid_15',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(188,145,98,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 5.000000 && feature.properties['Категория_count'] <= 10.000000 ) {
+                return {
+                pane: 'pane_zkhgrid_15',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(157,108,59,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 10.000000 && feature.properties['Категория_count'] <= 26.000000 ) {
+                return {
+                pane: 'pane_zkhgrid_15',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(125,72,21,1.0)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_zkhgrid_15');
+        map.getPane('pane_zkhgrid_15').style.zIndex = 415;
+        map.getPane('pane_zkhgrid_15').style['mix-blend-mode'] = 'normal';
+        var layer_zkhgrid_15 = new L.geoJson(json_zkhgrid_15, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_zkhgrid_15',
+            layerName: 'layer_zkhgrid_15',
+            pane: 'pane_zkhgrid_15',
+            onEachFeature: pop_zkhgrid_15,
+            style: style_zkhgrid_15_0,
+        });
+        bounds_group.addLayer(layer_zkhgrid_15);
+        function pop_zkhpoints_16(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="Адрес" colspan="2"><strong>Адрес</strong><br />' + (feature.properties['Адрес'] !== null ? autolinker.link(String(feature.properties['Адрес']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Краткая выжимка</th>\
+                        <td class="visible-with-data" id="Краткая выжимка">' + (feature.properties['Краткая выжимка'] !== null ? autolinker.link(String(feature.properties['Краткая выжимка']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Категория</th>\
+                        <td class="visible-with-data" id="Категория">' + (feature.properties['Категория'] !== null ? autolinker.link(String(feature.properties['Категория']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_zkhpoints_16_0() {
+            return {
+                pane: 'pane_zkhpoints_16',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(217,166,106,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_zkhpoints_16');
+        map.getPane('pane_zkhpoints_16').style.zIndex = 416;
+        map.getPane('pane_zkhpoints_16').style['mix-blend-mode'] = 'normal';
+        var layer_zkhpoints_16 = new L.geoJson(json_zkhpoints_16, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_zkhpoints_16',
+            layerName: 'layer_zkhpoints_16',
+            pane: 'pane_zkhpoints_16',
+            onEachFeature: pop_zkhpoints_16,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_zkhpoints_16_0(feature));
+            },
+        });
+        var cluster_zkhpoints_16 = new L.MarkerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyDistanceMultiplier: 2,
+            iconCreateFunction: makeComplaintClusterIcon('#D9A66A')
+        });
+        cluster_zkhpoints_16.addLayer(layer_zkhpoints_16);
+
+        bounds_group.addLayer(layer_zkhpoints_16);
+        function pop_govermentgrid_17(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Категория_count</th>\
+                        <td class="visible-with-data" id="Категория_count">' + (feature.properties['Категория_count'] !== null ? autolinker.link(String(feature.properties['Категория_count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_govermentgrid_17_0(feature) {
+            if (feature.properties['Категория_count'] >= 0.000000 && feature.properties['Категория_count'] <= 1.000000 ) {
+                return {
+                pane: 'pane_govermentgrid_17',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(156,156,156,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 3.000000 ) {
+                return {
+                pane: 'pane_govermentgrid_17',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(120,120,120,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 3.000000 && feature.properties['Категория_count'] <= 5.000000 ) {
+                return {
+                pane: 'pane_govermentgrid_17',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(84,84,84,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 5.000000 && feature.properties['Категория_count'] <= 11.000000 ) {
+                return {
+                pane: 'pane_govermentgrid_17',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(47,47,47,1.0)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_govermentgrid_17');
+        map.getPane('pane_govermentgrid_17').style.zIndex = 417;
+        map.getPane('pane_govermentgrid_17').style['mix-blend-mode'] = 'normal';
+        var layer_govermentgrid_17 = new L.geoJson(json_govermentgrid_17, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_govermentgrid_17',
+            layerName: 'layer_govermentgrid_17',
+            pane: 'pane_govermentgrid_17',
+            onEachFeature: pop_govermentgrid_17,
+            style: style_govermentgrid_17_0,
+        });
+        bounds_group.addLayer(layer_govermentgrid_17);
+        function pop_govermentpoints_18(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="Адрес" colspan="2"><strong>Адрес</strong><br />' + (feature.properties['Адрес'] !== null ? autolinker.link(String(feature.properties['Адрес']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Краткая выжимка</th>\
+                        <td class="visible-with-data" id="Краткая выжимка">' + (feature.properties['Краткая выжимка'] !== null ? autolinker.link(String(feature.properties['Краткая выжимка']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Категория</th>\
+                        <td class="visible-with-data" id="Категория">' + (feature.properties['Категория'] !== null ? autolinker.link(String(feature.properties['Категория']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_govermentpoints_18_0() {
+            return {
+                pane: 'pane_govermentpoints_18',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(130,130,130,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_govermentpoints_18');
+        map.getPane('pane_govermentpoints_18').style.zIndex = 418;
+        map.getPane('pane_govermentpoints_18').style['mix-blend-mode'] = 'normal';
+        var layer_govermentpoints_18 = new L.geoJson(json_govermentpoints_18, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_govermentpoints_18',
+            layerName: 'layer_govermentpoints_18',
+            pane: 'pane_govermentpoints_18',
+            onEachFeature: pop_govermentpoints_18,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_govermentpoints_18_0(feature));
+            },
+        });
+        var cluster_govermentpoints_18 = new L.MarkerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyDistanceMultiplier: 2,
+            iconCreateFunction: makeComplaintClusterIcon('#828282')
+        });
+        cluster_govermentpoints_18.addLayer(layer_govermentpoints_18);
+
+        bounds_group.addLayer(layer_govermentpoints_18);
+        function pop_blagoustrgrid_19(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Категория_count</th>\
+                        <td class="visible-with-data" id="Категория_count">' + (feature.properties['Категория_count'] !== null ? autolinker.link(String(feature.properties['Категория_count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_blagoustrgrid_19_0(feature) {
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 1.000000 ) {
+                return {
+                pane: 'pane_blagoustrgrid_19',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(194,210,165,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 2.000000 ) {
+                return {
+                pane: 'pane_blagoustrgrid_19',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(160,180,137,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 2.000000 && feature.properties['Категория_count'] <= 4.000000 ) {
+                return {
+                pane: 'pane_blagoustrgrid_19',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(127,150,109,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 4.000000 && feature.properties['Категория_count'] <= 8.000000 ) {
+                return {
+                pane: 'pane_blagoustrgrid_19',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(94,120,81,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 8.000000 && feature.properties['Категория_count'] <= 24.000000 ) {
+                return {
+                pane: 'pane_blagoustrgrid_19',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(60,90,53,1.0)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_blagoustrgrid_19');
+        map.getPane('pane_blagoustrgrid_19').style.zIndex = 419;
+        map.getPane('pane_blagoustrgrid_19').style['mix-blend-mode'] = 'normal';
+        var layer_blagoustrgrid_19 = new L.geoJson(json_blagoustrgrid_19, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_blagoustrgrid_19',
+            layerName: 'layer_blagoustrgrid_19',
+            pane: 'pane_blagoustrgrid_19',
+            onEachFeature: pop_blagoustrgrid_19,
+            style: style_blagoustrgrid_19_0,
+        });
+        bounds_group.addLayer(layer_blagoustrgrid_19);
+        function pop_blagoustrpoints_20(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="Адрес" colspan="2"><strong>Адрес</strong><br />' + (feature.properties['Адрес'] !== null ? autolinker.link(String(feature.properties['Адрес']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Краткая выжимка</th>\
+                        <td class="visible-with-data" id="Краткая выжимка">' + (feature.properties['Краткая выжимка'] !== null ? autolinker.link(String(feature.properties['Краткая выжимка']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Категория</th>\
+                        <td class="visible-with-data" id="Категория">' + (feature.properties['Категория'] !== null ? autolinker.link(String(feature.properties['Категория']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_blagoustrpoints_20_0() {
+            return {
+                pane: 'pane_blagoustrpoints_20',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(197,203,143,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_blagoustrpoints_20');
+        map.getPane('pane_blagoustrpoints_20').style.zIndex = 420;
+        map.getPane('pane_blagoustrpoints_20').style['mix-blend-mode'] = 'normal';
+        var layer_blagoustrpoints_20 = new L.geoJson(json_blagoustrpoints_20, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_blagoustrpoints_20',
+            layerName: 'layer_blagoustrpoints_20',
+            pane: 'pane_blagoustrpoints_20',
+            onEachFeature: pop_blagoustrpoints_20,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_blagoustrpoints_20_0(feature));
+            },
+        });
+        var cluster_blagoustrpoints_20 = new L.MarkerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyDistanceMultiplier: 2,
+            iconCreateFunction: makeComplaintClusterIcon('#C5CB8F')
+        });
+        cluster_blagoustrpoints_20.addLayer(layer_blagoustrpoints_20);
+
+        bounds_group.addLayer(layer_blagoustrpoints_20);
+        function pop_safegrid_21(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">Категория_count</th>\
+                        <td class="visible-with-data" id="Категория_count">' + (feature.properties['Категория_count'] !== null ? autolinker.link(String(feature.properties['Категория_count']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_safegrid_21_0(feature) {
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 1.000000 ) {
+                return {
+                pane: 'pane_safegrid_21',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(140,163,178,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 1.000000 && feature.properties['Категория_count'] <= 3.000000 ) {
+                return {
+                pane: 'pane_safegrid_21',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(87,117,137,1.0)',
+                interactive: true,
+            }
+            }
+            if (feature.properties['Категория_count'] >= 3.000000 && feature.properties['Категория_count'] <= 5.000000 ) {
+                return {
+                pane: 'pane_safegrid_21',
+                stroke: false, 
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(35,72,96,1.0)',
+                interactive: true,
+            }
+            }
+        }
+        map.createPane('pane_safegrid_21');
+        map.getPane('pane_safegrid_21').style.zIndex = 421;
+        map.getPane('pane_safegrid_21').style['mix-blend-mode'] = 'normal';
+        var layer_safegrid_21 = new L.geoJson(json_safegrid_21, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_safegrid_21',
+            layerName: 'layer_safegrid_21',
+            pane: 'pane_safegrid_21',
+            onEachFeature: pop_safegrid_21,
+            style: style_safegrid_21_0,
+        });
+        bounds_group.addLayer(layer_safegrid_21);
+        function pop_safepoints_22(feature, layer) {
+            var popupContent = '<table>\
+                    <tr>\
+                        <td class="visible-with-data" id="Адрес" colspan="2"><strong>Адрес</strong><br />' + (feature.properties['Адрес'] !== null ? autolinker.link(String(feature.properties['Адрес']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Краткая выжимка</th>\
+                        <td class="visible-with-data" id="Краткая выжимка">' + (feature.properties['Краткая выжимка'] !== null ? autolinker.link(String(feature.properties['Краткая выжимка']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">Категория</th>\
+                        <td class="visible-with-data" id="Категория">' + (feature.properties['Категория'] !== null ? autolinker.link(String(feature.properties['Категория']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_safepoints_22_0() {
+            return {
+                pane: 'pane_safepoints_22',
+                radius: 6.0,
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1,
+                fill: true,
+                fillOpacity: 1,
+                fillColor: 'rgba(112,144,182,1.0)',
+                interactive: true,
+            }
+        }
+        map.createPane('pane_safepoints_22');
+        map.getPane('pane_safepoints_22').style.zIndex = 422;
+        map.getPane('pane_safepoints_22').style['mix-blend-mode'] = 'normal';
+        var layer_safepoints_22 = new L.geoJson(json_safepoints_22, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_safepoints_22',
+            layerName: 'layer_safepoints_22',
+            pane: 'pane_safepoints_22',
+            onEachFeature: pop_safepoints_22,
+            pointToLayer: function (feature, latlng) {
+                var context = {
+                    feature: feature,
+                    variables: {}
+                };
+                return L.circleMarker(latlng, style_safepoints_22_0(feature));
+            },
+        });
+        var cluster_safepoints_22 = new L.MarkerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyDistanceMultiplier: 2,
+            iconCreateFunction: makeComplaintClusterIcon('#7090B6')
+        });
+        cluster_safepoints_22.addLayer(layer_safepoints_22);
+
+        bounds_group.addLayer(layer_safepoints_22);
+        const url = {"Nominatim OSM": "https://nominatim.openstreetmap.org/search?format=geojson&addressdetails=1&",
+        "France BAN": "https://api-adresse.data.gouv.fr/search/?"}
+        var photonControl = L.control.photon({
+            url: url["Nominatim OSM"],
+            feedbackLabel: '',
+            position: 'topleft',
+            includePosition: true,
+            initial: true,
+        }).addTo(map);
+        photonControl._container.childNodes[0].style.borderRadius="10px"
+        var x = null;
+        var marker = null;
+        var z = null;
+        photonControl.on('selected', function(e) {
+            console.log(photonControl.search.resultsContainer);
+            if (x != null) {
+                map.removeLayer(obj3.marker);
+                map.removeLayer(x);
+            }
+            obj2.gcd = e.choice;
+            x = L.geoJSON(obj2.gcd).addTo(map);
+            var label = typeof obj2.gcd.properties.label === 'undefined' ? obj2.gcd.properties.display_name : obj2.gcd.properties.label;
+            obj3.marker = L.marker(x.getLayers()[0].getLatLng()).bindPopup(label).addTo(map);
+            map.setView(x.getLayers()[0].getLatLng(), 17);
+            z = typeof e.choice.properties.label === 'undefined'? e.choice.properties.display_name : e.choice.properties.label;
+            console.log(e);
+            e.target.input.value = z;
+        });
+        var search = document.getElementsByClassName("leaflet-photon leaflet-control")[0];
+        search.classList.add("leaflet-control-search")
+        search.style.display = "flex";
+        search.style.backgroundColor="rgba(255,255,255,0.5)" 
+
+        var button = document.createElement("div");
+        button.id = "gcd-button-control";
+        button.className = "gcd-gl-btn fa fa-search search-button";
+
+        search.insertBefore(button, search.firstChild);
+        last = search.lastChild;
+        last.style.display = "none";
+        button.addEventListener("click", function (e) {
+            if (last.style.display === "none") {
+                last.style.display = "block";
+            } else {
+                last.style.display = "none";
+            }
+        });
+        /* =========================
+           Layer groups and legend
+           ========================= */
+        var GRID_HIDE_SCALE_DENOMINATOR = 25000;
+        var GRID_VISIBLE_OPACITY = 0.6;
+
+        var complaint_safe = L.layerGroup([cluster_safepoints_22, layer_safegrid_21]);
+        var complaint_blagoustr = L.layerGroup([cluster_blagoustrpoints_20, layer_blagoustrgrid_19]);
+        var complaint_goverment = L.layerGroup([cluster_govermentpoints_18, layer_govermentgrid_17]);
+        var complaint_zkh = L.layerGroup([cluster_zkhpoints_16, layer_zkhgrid_15]);
+        var complaint_medic = L.layerGroup([cluster_medicpoints_14, layer_medicgrid_13]);
+        var complaint_education = L.layerGroup([cluster_educationpoints_12, layer_educationgrid_11]);
+        var complaint_social = L.layerGroup([cluster_socialpoints_10, layer_socialgrid_9]);
+        var complaint_transport = L.layerGroup([cluster_transportpoints_8, layer_transportgrid_7]);
+        var complaint_eco = L.layerGroup([cluster_ecopoints_6, layer_ecogrid_5]);
+
+        var complaintLayersByCategory = [
+            {group: complaint_safe, grid: layer_safegrid_21},
+            {group: complaint_blagoustr, grid: layer_blagoustrgrid_19},
+            {group: complaint_goverment, grid: layer_govermentgrid_17},
+            {group: complaint_zkh, grid: layer_zkhgrid_15},
+            {group: complaint_medic, grid: layer_medicgrid_13},
+            {group: complaint_education, grid: layer_educationgrid_11},
+            {group: complaint_social, grid: layer_socialgrid_9},
+            {group: complaint_transport, grid: layer_transportgrid_7},
+            {group: complaint_eco, grid: layer_ecogrid_5}
+        ];
+
+        var categoryGridLayers = [
+            layer_ecogrid_5,
+            layer_transportgrid_7,
+            layer_socialgrid_9,
+            layer_educationgrid_11,
+            layer_medicgrid_13,
+            layer_zkhgrid_15,
+            layer_govermentgrid_17,
+            layer_blagoustrgrid_19,
+            layer_safegrid_21
+        ];
+
+        function makeLegendTable(rows) {
+            return '<table>' + rows.map(function (row) {
+                return '<tr><td style="text-align: center;"><img src="' + row[0] + '" /></td><td>' + row[1] + '</td></tr>';
+            }).join('') + '</table>';
+        }
+
+        var overlaysTree = [
+            {
+                label: '<span class="legend-section-title">Жалобы жителей города</span><br />' + makeLegendTable([
+                    ['legend/pointsformap_4_Безопасностьиправопорядок0.png', 'Безопасность и правопорядок'],
+                    ['legend/pointsformap_4_Благоустройство1.png', 'Благоустройство'],
+                    ['legend/pointsformap_4_Государственныеучреждения2.png', 'Государственные учреждения'],
+                    ['legend/pointsformap_4_ЖКХикоммунальныеуслуги3.png', 'ЖКХ и коммунальные услуги'],
+                    ['legend/pointsformap_4_Медицинаиздравоохранение4.png', 'Медицина и здравоохранение'],
+                    ['legend/pointsformap_4_Образование5.png', 'Образование'],
+                    ['legend/pointsformap_4_Социальнаязащитаильготы6.png', 'Социальная защита и льготы'],
+                    ['legend/pointsformap_4_Транспорт7.png', 'Транспорт'],
+                    ['legend/pointsformap_4_Экология8.png', 'Экология']
+                ]),
+                layer: cluster_pointsformap_4
+            },
+            {
+                label: '<span class="legend-section-title">Превалирующая категория жалоб в районе</span><br />' +
+                    '<i class="legend-note">Без учета ЖКХ и коммунальных услуг,<br />' +
+                    'так как эта категория является наиболее<br />' +
+                    'упоминаемой в 72% районах Москвы<br />' +
+                    'и ее наличие не позволило бы посмотреть<br />' +
+                    'на распределение остальных категорий жалоб.</i>' +
+                    makeLegendTable([
+                        ['legend/disprobwithoutzkh_2_Безопасностьиправопорядок0.png', 'Безопасность и правопорядок'],
+                        ['legend/disprobwithoutzkh_2_Благоустройство1.png', 'Благоустройство'],
+                        ['legend/disprobwithoutzkh_2_Государственныеучреждения2.png', 'Государственные учреждения'],
+                        ['legend/disprobwithoutzkh_2_Образование3.png', 'Образование'],
+                        ['legend/disprobwithoutzkh_2_Социальнаязащитаильготы4.png', 'Социальная защита и льготы'],
+                        ['legend/disprobwithoutzkh_2_Транспорт5.png', 'Транспорт'],
+                        ['legend/disprobwithoutzkh_2_Экология6.png', 'Экология']
+                    ]),
+                layer: layer_disprobwithoutzkh_2
+            },
+            {
+                label: '<span class="legend-section-title">Жалобы жителей по категориям</span>',
+                collapsed: false,
+                children: [
+                    { label: 'Безопасность и правопорядок', layer: complaint_safe },
+                    { label: 'Благоустройство', layer: complaint_blagoustr },
+                    { label: 'Государственные учреждения', layer: complaint_goverment },
+                    { label: 'ЖКХ и коммунальные услуги', layer: complaint_zkh },
+                    { label: 'Медицина и здравоохранение', layer: complaint_medic },
+                    { label: 'Образование', layer: complaint_education },
+                    { label: 'Социальная защита и льготы', layer: complaint_social },
+                    { label: 'Транспорт', layer: complaint_transport },
+                    { label: 'Экология', layer: complaint_eco }
+                ]
+            },
+            {
+                label: '<span class="legend-section-title">Количество жалоб по районам на 20 000 человек</span><br />' +
+                    '<i class="legend-note">Жалоб всего — общее количество жалоб в районе.<br />' +
+                    'Жалоб на 20 000 человек — нормированное количество жалоб с учетом численности населения района.</i>' +
+                    makeLegendTable([
+                        ['legend/countproblemsper20000_1_140.png', 'менее 3-х'],
+                        ['legend/countproblemsper20000_1_451.png', '4 - 5'],
+                        ['legend/countproblemsper20000_1_562.png', '6 - 7'],
+                        ['legend/countproblemsper20000_1_683.png', '8 - 9'],
+                        ['legend/countproblemsper20000_1_8204.png', '10 и более']
+                    ]),
+                layer: layer_countproblemsper20000_1
+            }
+        ];
+
+        var lay = L.control.layers.tree(null, overlaysTree, {
+            collapsed: true,
+        });
+        lay.addTo(map);
+
+        /* =========================
+           UI, popups and performance cleanup
+           ========================= */
+        var uiStyle = document.createElement('style');
+        uiStyle.type = 'text/css';
+        uiStyle.appendChild(document.createTextNode(
+            '.leaflet-control-layers {' +
+                'font-size: 16px;' +
+                'line-height: 1.35;' +
+                'max-width: 430px;' +
+            '}' +
+            '.leaflet-control-layers-list {' +
+                'max-height: 86vh;' +
+                'overflow-y: auto;' +
+                'padding-right: 8px;' +
+            '}' +
+            '.legend-main-title {' +
+                'font-size: 22px;' +
+                'font-weight: 800;' +
+                'line-height: 1.2;' +
+                'margin: 0 0 12px 0;' +
+            '}' +
+            '.legend-section-title {' +
+                'font-size: 18px !important;' +
+                'font-weight: 800 !important;' +
+                'line-height: 1.25;' +
+            '}' +
+            '.legend-note {' +
+                'display: block;' +
+                'max-width: 360px;' +
+                'white-space: normal;' +
+                'line-height: 1.35;' +
+                'margin: 6px 0 10px 0;' +
+                'font-size: 15px;' +
+            '}' +
+            '.map-header-control {' +
+                'background: rgba(255,255,255,0.95);' +
+                'padding: 10px 12px;' +
+                'border-radius: 6px;' +
+                'box-shadow: 0 1px 6px rgba(0,0,0,0.25);' +
+                'max-width: 410px;' +
+                'font-family: Arial, sans-serif;' +
+            '}' +
+            '.map-header-title {' +
+                'font-size: 16px;' +
+                'font-weight: 800;' +
+                'line-height: 1.25;' +
+                'margin-bottom: 8px;' +
+            '}' +
+            '.map-info-button, .map-info-close {' +
+                'display: inline-block;' +
+                'border: 1px solid #777;' +
+                'background: #fff;' +
+                'border-radius: 4px;' +
+                'padding: 5px 9px;' +
+                'font-size: 13px;' +
+                'font-weight: 700;' +
+                'cursor: pointer;' +
+            '}' +
+            '.map-info-panel {' +
+                'display: none;' +
+                'margin-top: 8px;' +
+                'padding: 10px;' +
+                'border: 1px solid #bdbdbd;' +
+                'border-radius: 4px;' +
+                'background: #fff;' +
+                'font-size: 13px;' +
+                'line-height: 1.35;' +
+                'max-width: 390px;' +
+            '}' +
+            '.map-info-panel.open { display: block; }' +
+            '.map-stats-button {' +
+                'display: block;' +
+                'margin-top: 8px;' +
+            '}' +
+            '.map-info-panel {' +
+                'max-width: 560px;' +
+                'max-height: 72vh;' +
+                'overflow-y: auto;' +
+            '}' +
+            '.map-info-section-title {' +
+                'font-size: 14px;' +
+                'font-weight: 800;' +
+                'margin: 12px 0 8px 0;' +
+            '}' +
+            '.complaint-share-bar {' +
+                'display: flex;' +
+                'width: 100%;' +
+                'height: 42px;' +
+                'overflow: hidden;' +
+                'border-radius: 2px;' +
+                'margin: 6px 0 8px 0;' +
+                'background: #eee;' +
+            '}' +
+            '.complaint-share-segment {' +
+                'display: flex;' +
+                'align-items: center;' +
+                'justify-content: center;' +
+                'font-size: 12px;' +
+                'font-weight: 700;' +
+                'color: #111;' +
+                'white-space: nowrap;' +
+                'min-width: 2px;' +
+            '}' +
+            '.complaint-share-legend {' +
+                'display: grid;' +
+                'grid-template-columns: 1fr 1fr;' +
+                'gap: 4px 10px;' +
+                'margin: 6px 0 10px 0;' +
+            '}' +
+            '.complaint-share-legend-row {' +
+                'display: flex;' +
+                'align-items: center;' +
+                'gap: 6px;' +
+                'font-size: 12px;' +
+                'line-height: 1.2;' +
+            '}' +
+            '.complaint-share-swatch {' +
+                'display: inline-block;' +
+                'width: 12px;' +
+                'height: 12px;' +
+                'border: 1px solid rgba(0,0,0,0.25);' +
+                'flex: 0 0 auto;' +
+            '}' +
+            '.map-info-list {' +
+                'margin: 0 0 8px 20px;' +
+                'padding: 0;' +
+                'font-size: 12px;' +
+                'line-height: 1.35;' +
+            '}' +
+            '.map-info-list li {' +
+                'margin-bottom: 3px;' +
+            '}' +
+            '.leaflet-photon.leaflet-control.leaflet-control-search {' +
+                'margin-top: 8px;' +
+            '}' +
+            '.leaflet-photon input, .leaflet-control-search input, input[type="search"] {' +
+                'padding-left: 18px !important;' +
+                'box-sizing: border-box;' +
+            '}' +
+            '.leaflet-control-scale {' +
+                'font-size: 12px;' +
+                'background: transparent !important;' +
+                'box-shadow: none !important;' +
+            '}' +
+            '.leaflet-control-scale-line {' +
+                'background: transparent !important;' +
+                'border: none !important;' +
+                'border-bottom: 2px solid #111 !important;' +
+                'border-left: 2px solid #111 !important;' +
+                'border-right: 2px solid #111 !important;' +
+                'box-shadow: none !important;' +
+                'color: #111 !important;' +
+                'font-weight: 700;' +
+                'text-align: center;' +
+                'text-shadow: none !important;' +
+                'line-height: 16px;' +
+                'height: 18px;' +
+                'padding: 0 8px 4px 8px;' +
+            '}'
+        ));
+        document.head.appendChild(uiStyle);
+
+        function addLegendTitle() {
+            var legendList = document.querySelector('.leaflet-control-layers-list') ||
+                document.querySelector('.leaflet-control-layers-overlays');
+            if (!legendList || legendList.querySelector('.legend-main-title')) return;
+            var title = document.createElement('div');
+            title.className = 'legend-main-title';
+            title.textContent = 'Условные обозначения';
+            legendList.insertBefore(title, legendList.firstChild);
+        }
+
+        function addMapHeader() {
+            if (document.querySelector('.map-header-control')) return;
+            var mapHeaderControl = L.control({ position: 'topleft' });
+            mapHeaderControl.onAdd = function () {
+                var container = L.DomUtil.create('div', 'map-header-control');
+                container.innerHTML =
+                    '<div class="map-header-title">Интерактивная карта жалоб жителей города Москвы</div>' +
+                    '<button type="button" class="map-info-button">Информация о карте</button>' +
+                    '<div class="map-info-panel map-about-panel">' +
+                        '<div>Интерактивная карта жалоб жителей Москвы составлена на основе данных портала &quot;Жалобы Москвы&quot;. ' +
+                        'Жалобы о проблемах жителей распределены по 9-ти категориям, что позволяет увидеть наиболее проблемные зоны города по каждой категории, ' +
+                        'определить наиболее волнующие проблемы жителей по каждому району, а также понять, из каких районов поступает наибольшее количество обращений жителей. ' +
+                        'Карта позволяет определить, на какие зоны и районы города необходимо обратить внимание как по отдельным категориям проблем, ' +
+                        'так и по общему количеству обращений жителей города.</div>' +
+                        '<div class="map-info-section-title">Как пользоваться</div>' +
+                        '<div>Кликните по району, чтобы увидеть его название, население, превалирующую категорию проблем или количество жалоб жителей, или по маркеру — чтобы узнать адрес заявителя, категорию жалобы и ее краткую выжимку. Также вы можете найти необходимый район в строке поиска ниже.</div>' +
+                        '<button type="button" class="map-info-close map-about-close">Закрыть</button>' +
+                    '</div>' +
+                    '<button type="button" class="map-info-button map-stats-button">Статистика</button>' +
+                    '<div class="map-info-panel map-stats-panel">' +
+                        '<div class="map-info-section-title">Соотношение категорий жалоб жителей:</div>' +
+                        '<div class="complaint-share-bar">' +
+                            '<div class="complaint-share-segment" style="width:40%;background:rgba(217,166,106,1.0);">40%</div>' +
+                            '<div class="complaint-share-segment" style="width:21%;background:rgba(162,189,221,1.0);">21%</div>' +
+                            '<div class="complaint-share-segment" style="width:17%;background:rgba(197,203,143,1.0);">17%</div>' +
+                            '<div class="complaint-share-segment" style="width:6%;background:rgba(130,130,130,1.0);">6%</div>' +
+                            '<div class="complaint-share-segment" style="width:4%;background:rgba(159,224,215,1.0);"></div>' +
+                            '<div class="complaint-share-segment" style="width:4%;background:rgba(155,203,143,1.0);"></div>' +
+                            '<div class="complaint-share-segment" style="width:3%;background:rgba(112,144,182,1.0);"></div>' +
+                            '<div class="complaint-share-segment" style="width:3%;background:rgba(170,143,113,1.0);"></div>' +
+                            '<div class="complaint-share-segment" style="width:2%;background:rgba(217,140,140,1.0);"></div>' +
+                        '</div>' +
+                        '<div class="complaint-share-legend">' +
+                            '<div class="complaint-share-legend-row"><span class="complaint-share-swatch" style="background:rgba(217,166,106,1.0);"></span>ЖКХ и коммунальные услуги — 40%</div>' +
+                            '<div class="complaint-share-legend-row"><span class="complaint-share-swatch" style="background:rgba(162,189,221,1.0);"></span>Транспорт — 21%</div>' +
+                            '<div class="complaint-share-legend-row"><span class="complaint-share-swatch" style="background:rgba(197,203,143,1.0);"></span>Благоустройство — 17%</div>' +
+                            '<div class="complaint-share-legend-row"><span class="complaint-share-swatch" style="background:rgba(130,130,130,1.0);"></span>Государственные учреждения — 6%</div>' +
+                            '<div class="complaint-share-legend-row"><span class="complaint-share-swatch" style="background:rgba(159,224,215,1.0);"></span>Социальная защита и льготы — 4%</div>' +
+                            '<div class="complaint-share-legend-row"><span class="complaint-share-swatch" style="background:rgba(155,203,143,1.0);"></span>Экология — 4%</div>' +
+                            '<div class="complaint-share-legend-row"><span class="complaint-share-swatch" style="background:rgba(112,144,182,1.0);"></span>Безопасность и правопорядок — 3%</div>' +
+                            '<div class="complaint-share-legend-row"><span class="complaint-share-swatch" style="background:rgba(170,143,113,1.0);"></span>Образование — 3%</div>' +
+                            '<div class="complaint-share-legend-row"><span class="complaint-share-swatch" style="background:rgba(217,140,140,1.0);"></span>Медицина и здравоохранение — 2%</div>' +
+                        '</div>' +
+                        '<div class="map-info-section-title">Список районов с наибольшим количеством жалоб на 20 000 человек</div>' +
+                        '<ol id="top-rate-districts" class="map-info-list"><li>Загрузка данных...</li></ol>' +
+                        '<div class="map-info-section-title">Список районов с общим наибольшим количеством жалоб</div>' +
+                        '<ol id="top-total-districts" class="map-info-list"><li>Загрузка данных...</li></ol>' +
+                        '<button type="button" class="map-info-close map-stats-close">Закрыть</button>' +
+                    '</div>';
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.disableScrollPropagation(container);
+                var infoButton = container.querySelector('.map-info-button:not(.map-stats-button)');
+                var infoPanel = container.querySelector('.map-about-panel');
+                var closeButton = container.querySelector('.map-about-close');
+                var statsButton = container.querySelector('.map-stats-button');
+                var statsPanel = container.querySelector('.map-stats-panel');
+                var statsCloseButton = container.querySelector('.map-stats-close');
+
+                infoButton.addEventListener('click', function () {
+                    infoPanel.classList.toggle('open');
+                });
+                closeButton.addEventListener('click', function () {
+                    infoPanel.classList.remove('open');
+                });
+                statsButton.addEventListener('click', function () {
+                    statsPanel.classList.toggle('open');
+                });
+                statsCloseButton.addEventListener('click', function () {
+                    statsPanel.classList.remove('open');
+                });
+                return container;
+            };
+            mapHeaderControl.addTo(map);
+            setTimeout(function () {
+                var topLeft = document.querySelector('.leaflet-top.leaflet-left');
+                var header = document.querySelector('.map-header-control');
+                if (topLeft && header) topLeft.insertBefore(header, topLeft.firstChild);
+            }, 50);
+        }
+
+        function populateInfoPanelStats() {
+            if (typeof json_countproblemsper20000_1 === 'undefined' || !json_countproblemsper20000_1.features) return;
+
+            function getProperties(feature) {
+                return feature && feature.properties ? feature.properties : {};
+            }
+
+            function toNumber(value) {
+                var numberValue = Number(value);
+                return Number.isNaN(numberValue) ? null : numberValue;
+            }
+
+            function districtName(props) {
+                return props['NAME'] || props['name'] || 'Без названия';
+            }
+
+            function fillTopList(elementId, rows, valueGetter, suffix) {
+                var list = document.getElementById(elementId);
+                if (!list) return;
+
+                var html = rows.slice(0, 10).map(function (props) {
+                    var value = valueGetter(props);
+                    return '<li><strong>' + escapeHtml(districtName(props)) + '</strong> — ' + formatNumberWithSpaces(value) + suffix + '</li>';
+                }).join('');
+
+                list.innerHTML = html || '<li>Нет данных</li>';
+            }
+
+            var properties = json_countproblemsper20000_1.features.map(getProperties);
+
+            var byRate = properties
+                .filter(function (props) { return toNumber(props['count']) !== null; })
+                .sort(function (a, b) { return Number(b['count']) - Number(a['count']); });
+
+            var byTotal = properties
+                .filter(function (props) { return toNumber(props['Категория_count']) !== null; })
+                .sort(function (a, b) { return Number(b['Категория_count']) - Number(a['Категория_count']); });
+
+            fillTopList('top-rate-districts', byRate, function (props) {
+                return Math.round(Number(props['count']));
+            }, ' жалоб на 20 000 человек');
+
+            fillTopList('top-total-districts', byTotal, function (props) {
+                return Math.round(Number(props['Категория_count']));
+            }, ' жалоб');
+        }
+
+        function setRussianAddressPlaceholder() {
+            var inputs = document.querySelectorAll('.leaflet-photon input, input[type="search"], input[placeholder*="Search"], input[placeholder*="address"], input[placeholder*="Address"]');
+            inputs.forEach(function (input) {
+                input.placeholder = 'Введите адрес';
+                input.setAttribute('aria-label', 'Введите адрес');
+                input.style.paddingLeft = '18px';
+                input.style.boxSizing = 'border-box';
+            });
+        }
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) return '';
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function formatNumberWithSpaces(value) {
+            if (value === null || value === undefined || value === '') return '';
+            var numberValue = Number(value);
+            if (Number.isNaN(numberValue)) return escapeHtml(value);
+            return String(Math.round(numberValue)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+        }
+
+        function formatRate(value) {
+            if (value === null || value === undefined || value === '') return '';
+            var numberValue = Number(value);
+            if (Number.isNaN(numberValue)) return escapeHtml(value);
+            return String(Math.round(numberValue)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+        }
+
+        function popupTable(rows) {
+            var html = '<table>';
+            rows.forEach(function (row) {
+                var label = row[0];
+                var value = row[1];
+                var isMain = row[2] === true;
+                if (value === null || value === undefined || value === '') return;
+                if (isMain) {
+                    html += '<tr><td colspan="2"><strong>' + escapeHtml(label) + '</strong><br />' + escapeHtml(value) + '</td></tr>';
+                } else {
+                    html += '<tr><th scope="row">' + escapeHtml(label) + '</th><td>' + escapeHtml(value) + '</td></tr>';
+                }
+            });
+            html += '</table>';
+            return html;
+        }
+
+        function rebindPopup(layer, htmlBuilder) {
+            if (!layer || typeof layer.eachLayer !== 'function') return;
+            layer.eachLayer(function (featureLayer) {
+                if (!featureLayer.feature || !featureLayer.feature.properties) return;
+                var html = htmlBuilder(featureLayer.feature.properties);
+                if (typeof featureLayer.unbindPopup === 'function') featureLayer.unbindPopup();
+                if (html && typeof featureLayer.bindPopup === 'function') featureLayer.bindPopup(html, { maxHeight: 400 });
+            });
+        }
+
+        function transparentNoDataStyle(layer, paneName) {
+            if (!layer || typeof layer.eachLayer !== 'function') return;
+            layer.eachLayer(function (cellLayer) {
+                if (!cellLayer.feature || !cellLayer.feature.properties) return;
+                var value = Number(cellLayer.feature.properties['Категория_count']);
+                if (Number.isNaN(value) || value <= 0) {
+                    if (typeof cellLayer.setStyle === 'function') {
+                        cellLayer.setStyle({pane: paneName, stroke: false, fill: true, fillOpacity: 0, opacity: 0, color: 'transparent', fillColor: 'transparent', interactive: false});
+                    }
+                    cellLayer.options.interactive = false;
+                    if (typeof cellLayer.unbindPopup === 'function') cellLayer.unbindPopup();
+                } else if (typeof cellLayer.setStyle === 'function') {
+                    cellLayer.setStyle({fillOpacity: GRID_VISIBLE_OPACITY});
+                }
+            });
+        }
+
+        function cleanCategoryGrids() {
+            categoryGridLayers.forEach(function (gridLayer) {
+                var paneName = gridLayer && gridLayer.options ? gridLayer.options.pane : null;
+                transparentNoDataStyle(gridLayer, paneName);
+                rebindPopup(gridLayer, function (props) {
+                    return popupTable([['Количество жалоб', formatNumberWithSpaces(props['Категория_count'])]]);
+                });
+            });
+        }
+
+        window.style_countproblemsper20000_1_0 = function (feature) {
+            var value = Number(feature.properties['count']);
+            var baseStyle = {
+                pane: 'pane_countproblemsper20000_1',
+                opacity: 1,
+                color: 'rgba(35,35,35,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 1.0,
+                fill: true,
+                fillOpacity: 0.6,
+                interactive: true
+            };
+            if (Number.isNaN(value)) {
+                return Object.assign({}, baseStyle, {opacity: 0, fillOpacity: 0, color: 'transparent', fillColor: 'transparent', interactive: false});
+            }
+            if (value < 4) return Object.assign({}, baseStyle, {fillColor: 'rgba(213,193,255,1.0)'});
+            if (value >= 4 && value <= 5) return Object.assign({}, baseStyle, {fillColor: 'rgba(173,147,223,1.0)'});
+            if (value >= 6 && value <= 7) return Object.assign({}, baseStyle, {fillColor: 'rgba(133,101,191,1.0)'});
+            if (value >= 8 && value <= 9) return Object.assign({}, baseStyle, {fillColor: 'rgba(92,55,159,1.0)'});
+            return Object.assign({}, baseStyle, {fillColor: 'rgba(52,9,127,1.0)'});
+        };
+
+        function applyPopupAndStyleFixes() {
+            rebindPopup(layer_districts_0, function (props) {
+                return popupTable([
+                    ['Район', props['NAME'], true],
+                    ['Население', formatNumberWithSpaces(props['Popul_2021'])]
+                ]);
+            });
+            rebindPopup(layer_disprobwithoutzkh_2, function (props) {
+                return popupTable([
+                    ['Район', props['NAME'], true],
+                    ['Население', formatNumberWithSpaces(props['Popul_2021'])],
+                    ['Превалирующая проблема', props['virtual_layer_problem_category']]
+                ]);
+            });
+            rebindPopup(layer_countproblemsper20000_1, function (props) {
+                return popupTable([
+                    ['Район', props['NAME'], true],
+                    ['Население', formatNumberWithSpaces(props['Popul_2021'])],
+                    ['Жалоб всего', formatNumberWithSpaces(props['Категория_count'])],
+                    ['Жалоб на 20 000 человек', formatRate(props['count'])]
+                ]);
+            });
+            layer_countproblemsper20000_1.setStyle(window.style_countproblemsper20000_1_0);
+            cleanCategoryGrids();
+        }
+
+        function getCurrentScaleDenominator() {
+            var center = map.getCenter();
+            var metersPerPixel = 156543.03392 * Math.cos(center.lat * Math.PI / 180) / Math.pow(2, map.getZoom());
+            return metersPerPixel * 96 / 0.0254;
+        }
+
+        function shouldHideGridByScale() {
+            return getCurrentScaleDenominator() < GRID_HIDE_SCALE_DENOMINATOR;
+        }
+
+        function updateCategoryGridsByZoom() {
+            var hideGrid = shouldHideGridByScale();
+            complaintLayersByCategory.forEach(function (item) {
+                if (!map.hasLayer(item.group)) return;
+                if (hideGrid && item.group.hasLayer(item.grid)) {
+                    item.group.removeLayer(item.grid);
+                }
+                if (!hideGrid && !item.group.hasLayer(item.grid)) {
+                    item.group.addLayer(item.grid);
+                    cleanCategoryGrids();
+                }
+            });
+        }
+
+        function updatePrevailingLayerByZoom() {
+            if (!map.hasLayer(layer_disprobwithoutzkh_2)) return;
+            var hideLayer = getCurrentScaleDenominator() < GRID_HIDE_SCALE_DENOMINATOR;
+            layer_disprobwithoutzkh_2.eachLayer(function (featureLayer) {
+                if (typeof featureLayer.setStyle !== 'function') return;
+                if (hideLayer) {
+                    featureLayer.setStyle({
+                        opacity: 0,
+                        fillOpacity: 0,
+                        color: 'transparent',
+                        fillColor: 'transparent'
+                    });
+                    featureLayer.options.interactive = false;
+                } else {
+                    featureLayer.setStyle(style_disprobwithoutzkh_2_0(featureLayer.feature));
+                    featureLayer.options.interactive = true;
+                }
+            });
+        }
+
+        function updateCountProblemsLayerByZoom() {
+            if (!map.hasLayer(layer_countproblemsper20000_1)) return;
+            var hideLayer = getCurrentScaleDenominator() < GRID_HIDE_SCALE_DENOMINATOR;
+            layer_countproblemsper20000_1.eachLayer(function (featureLayer) {
+                if (typeof featureLayer.setStyle !== 'function') return;
+                if (hideLayer) {
+                    featureLayer.setStyle({
+                        opacity: 0,
+                        fillOpacity: 0,
+                        color: 'transparent',
+                        fillColor: 'transparent'
+                    });
+                    featureLayer.options.interactive = false;
+                } else {
+                    featureLayer.setStyle(window.style_countproblemsper20000_1_0(featureLayer.feature));
+                    featureLayer.options.interactive = true;
+                }
+            });
+        }
+
+        function removeOtherCategoryFeatures() {
+            var layersToRemove = [];
+            layer_pointsformap_4.eachLayer(function (featureLayer) {
+                var props = featureLayer.feature && featureLayer.feature.properties ? featureLayer.feature.properties : {};
+                var value = props['Категория'];
+                if (value === null || value === undefined || value === '' || value === 'Другое' || value === 'другое') {
+                    layersToRemove.push(featureLayer);
+                }
+            });
+            layersToRemove.forEach(function (featureLayer) {
+                layer_pointsformap_4.removeLayer(featureLayer);
+            });
+        }
+
+        addLegendTitle();
+        addMapHeader();
+        populateInfoPanelStats();
+        setRussianAddressPlaceholder();
+        var russianScaleControl = L.control.scale({position: 'bottomright', metric: true, imperial: false, maxWidth: 180}).addTo(map);
+        function setRussianScaleUnits() {
+            document.querySelectorAll('.leaflet-control-scale-line').forEach(function (scaleLine) {
+                scaleLine.textContent = scaleLine.textContent
+                    .replace(/km/g, 'км')
+                    .replace(/m/g, 'м');
+            });
+        }
+        setRussianScaleUnits();
+        map.on('zoomend moveend', function () {
+            setTimeout(setRussianScaleUnits, 50);
+        });
+        setTimeout(setRussianScaleUnits, 300);
+        removeOtherCategoryFeatures();
+        applyPopupAndStyleFixes();
+        updateCategoryGridsByZoom();
+        updatePrevailingLayerByZoom();
+        updateCountProblemsLayerByZoom();
+
+        map.on('zoomend', function () {
+            updateCategoryGridsByZoom();
+            updatePrevailingLayerByZoom();
+            updateCountProblemsLayerByZoom();
+        });
+        map.on('overlayadd overlayremove', function () {
+            updateCategoryGridsByZoom();
+            updatePrevailingLayerByZoom();
+            updateCountProblemsLayerByZoom();
+        });
+
+        setTimeout(addLegendTitle, 300);
+        setTimeout(populateInfoPanelStats, 300);
+        setTimeout(setRussianAddressPlaceholder, 300);
+
+
+        /* =========================
+           Fullscreen control
+           ========================= */
+        var fullscreenStyle = document.createElement('style');
+        fullscreenStyle.type = 'text/css';
+        fullscreenStyle.appendChild(document.createTextNode(
+            '.leaflet-control-fullscreen-custom {' +
+                'background: #fff;' +
+                'width: 34px;' +
+                'height: 34px;' +
+                'line-height: 34px;' +
+                'text-align: center;' +
+                'font-size: 20px;' +
+                'font-weight: 700;' +
+                'color: #222;' +
+                'text-decoration: none;' +
+                'display: block;' +
+                'border-bottom: 1px solid #ccc;' +
+                'cursor: pointer;' +
+                'user-select: none;' +
+            '}' +
+            '.leaflet-control-fullscreen-custom:hover {' +
+                'background: #f4f4f4;' +
+                'color: #000;' +
+            '}' +
+            '.leaflet-container:fullscreen {' +
+                'width: 100vw !important;' +
+                'height: 100vh !important;' +
+            '}' +
+            '.leaflet-container:-webkit-full-screen {' +
+                'width: 100vw !important;' +
+                'height: 100vh !important;' +
+            '}'
+        ));
+        document.head.appendChild(fullscreenStyle);
+
+        var fullscreenControl = L.control({ position: 'bottomleft' });
+        fullscreenControl.onAdd = function () {
+            var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-fullscreen');
+            var button = L.DomUtil.create('a', 'leaflet-control-fullscreen-custom', container);
+            button.href = '#';
+            button.title = 'Открыть карту на весь экран';
+            button.setAttribute('aria-label', 'Открыть карту на весь экран');
+            button.innerHTML = '⛶';
+
+            function isFullscreen() {
+                return document.fullscreenElement || document.webkitFullscreenElement;
+            }
+
+            function openFullscreen(element) {
+                if (element.requestFullscreen) {
+                    return element.requestFullscreen();
+                }
+                if (element.webkitRequestFullscreen) {
+                    return element.webkitRequestFullscreen();
+                }
+            }
+
+            function closeFullscreen() {
+                if (document.exitFullscreen) {
+                    return document.exitFullscreen();
+                }
+                if (document.webkitExitFullscreen) {
+                    return document.webkitExitFullscreen();
+                }
+            }
+
+            function updateButtonState() {
+                var active = isFullscreen();
+                button.innerHTML = active ? '×' : '⛶';
+                button.title = active ? 'Выйти из полноэкранного режима' : 'Открыть карту на весь экран';
+                button.setAttribute('aria-label', button.title);
+                setTimeout(function () {
+                    map.invalidateSize();
+                }, 150);
+            }
+
+            L.DomEvent.disableClickPropagation(container);
+            L.DomEvent.disableScrollPropagation(container);
+
+            L.DomEvent.on(button, 'click', function (event) {
+                L.DomEvent.preventDefault(event);
+                var mapElement = document.getElementById('map');
+
+                if (isFullscreen()) {
+                    closeFullscreen();
+                } else {
+                    openFullscreen(mapElement);
+                }
+
+                setTimeout(updateButtonState, 250);
+            });
+
+            document.addEventListener('fullscreenchange', updateButtonState);
+            document.addEventListener('webkitfullscreenchange', updateButtonState);
+
+            return container;
+        };
+        fullscreenControl.addTo(map);
+
+
+        /* =========================
+           Final glass UI corrections
+           ========================= */
+        var finalGlassFixStyle = document.createElement('style');
+        finalGlassFixStyle.type = 'text/css';
+        finalGlassFixStyle.appendChild(document.createTextNode(
+            '.map-header-control {' +
+                'background: transparent !important;' +
+                'backdrop-filter: none !important;' +
+                '-webkit-backdrop-filter: none !important;' +
+                'border: none !important;' +
+                'box-shadow: none !important;' +
+                'border-radius: 0 !important;' +
+                'padding: 0 !important;' +
+                'max-width: 420px !important;' +
+                'font-family: Arial, sans-serif;' +
+            '}' +
+            '.map-header-title,' +
+            '.map-header-control > .map-info-button {' +
+                'display: block !important;' +
+                'width: fit-content !important;' +
+                'max-width: 390px !important;' +
+                'box-sizing: border-box !important;' +
+                'margin: 0 0 10px 0 !important;' +
+                'background: rgba(255,255,255,0.20) !important;' +
+                'backdrop-filter: blur(22px) saturate(160%) !important;' +
+                '-webkit-backdrop-filter: blur(22px) saturate(160%) !important;' +
+                'border: 1px solid rgba(255,255,255,0.34) !important;' +
+                'box-shadow: 0 10px 34px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.42) !important;' +
+                'border-radius: 22px !important;' +
+            '}' +
+            '.map-header-title {' +
+                'padding: 14px 18px !important;' +
+                'font-size: 16px !important;' +
+                'font-weight: 800 !important;' +
+                'line-height: 1.25 !important;' +
+                'color: #111 !important;' +
+            '}' +
+            '.map-header-control > .map-info-button {' +
+                'padding: 10px 16px !important;' +
+                'font-size: 13px !important;' +
+                'font-weight: 700 !important;' +
+                'color: #111 !important;' +
+                'cursor: pointer !important;' +
+            '}' +
+            '.map-info-panel {' +
+                'background: rgba(255,255,255,0.20) !important;' +
+                'backdrop-filter: blur(22px) saturate(160%) !important;' +
+                '-webkit-backdrop-filter: blur(22px) saturate(160%) !important;' +
+                'border: 1px solid rgba(255,255,255,0.34) !important;' +
+                'box-shadow: 0 10px 34px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.42) !important;' +
+                'border-radius: 22px !important;' +
+                'padding: 14px 16px !important;' +
+                'margin: 0 0 10px 0 !important;' +
+            '}' +
+            '.map-info-close {' +
+                'background: rgba(255,255,255,0.26) !important;' +
+                'border: 1px solid rgba(0,0,0,0.25) !important;' +
+                'border-radius: 14px !important;' +
+                'padding: 6px 10px !important;' +
+                'margin-top: 10px !important;' +
+            '}' +
+            '.leaflet-control-zoom.leaflet-bar,' +
+            '.leaflet-control-fullscreen.leaflet-bar,' +
+            '.leaflet-photon.leaflet-control,' +
+            '.leaflet-control-search {' +
+                'background: rgba(255,255,255,0.20) !important;' +
+                'backdrop-filter: blur(22px) saturate(160%) !important;' +
+                '-webkit-backdrop-filter: blur(22px) saturate(160%) !important;' +
+                'border: 1px solid rgba(255,255,255,0.34) !important;' +
+                'box-shadow: 0 10px 34px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.42) !important;' +
+                'border-radius: 22px !important;' +
+                'padding: 5px !important;' +
+                'overflow: hidden !important;' +
+            '}' +
+            '.leaflet-bar {' +
+                'border: none !important;' +
+                'box-shadow: none !important;' +
+            '}' +
+            '.leaflet-bar a,' +
+            '.leaflet-control-fullscreen-custom,' +
+            '.leaflet-photon .gcd-gl-btn,' +
+            '.leaflet-photon button,' +
+            '.leaflet-photon input {' +
+                'border-radius: 15px !important;' +
+                'border: none !important;' +
+                'box-shadow: none !important;' +
+                'overflow: hidden !important;' +
+            '}' +
+            '.leaflet-control-zoom a,' +
+            '.leaflet-control-fullscreen-custom {' +
+                'margin: 2px !important;' +
+                'background: rgba(255,255,255,0.24) !important;' +
+            '}' +
+            '.leaflet-control-zoom a:first-child,' +
+            '.leaflet-control-zoom a:last-child {' +
+                'border-radius: 15px !important;' +
+            '}' +
+            '.leaflet-photon input {' +
+                'background: rgba(255,255,255,0.18) !important;' +
+                'padding-left: 18px !important;' +
+            '}' +
+            '.leaflet-popup-content-wrapper {' +
+                'padding: 16px 22px 16px 16px !important;' +
+                'border-radius: 22px !important;' +
+                'background: rgba(255,255,255,0.22) !important;' +
+                'backdrop-filter: blur(22px) saturate(160%) !important;' +
+                '-webkit-backdrop-filter: blur(22px) saturate(160%) !important;' +
+                'border: 1px solid rgba(255,255,255,0.34) !important;' +
+                'box-shadow: 0 10px 34px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.42) !important;' +
+            '}' +
+            '.leaflet-popup-content {' +
+                'margin: 8px 8px 8px 8px !important;' +
+            '}' +
+            '.leaflet-popup-close-button {' +
+                'top: 9px !important;' +
+                'right: 10px !important;' +
+                'width: 26px !important;' +
+                'height: 26px !important;' +
+                'line-height: 26px !important;' +
+                'border-radius: 50% !important;' +
+                'background: rgba(255,255,255,0.35) !important;' +
+                'color: #111 !important;' +
+                'font-size: 18px !important;' +
+                'font-weight: 700 !important;' +
+            '}' +
+            '.leaflet-popup-tip {' +
+                'background: rgba(255,255,255,0.22) !important;' +
+                'backdrop-filter: blur(22px) saturate(160%) !important;' +
+                '-webkit-backdrop-filter: blur(22px) saturate(160%) !important;' +
+            '}'
+        ));
+        document.head.appendChild(finalGlassFixStyle);
+
+        setBounds();
+        </script>        
+    </body>
+</html>
